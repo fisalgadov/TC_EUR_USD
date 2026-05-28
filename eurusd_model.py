@@ -82,7 +82,7 @@ def generate_fallback_data(start: str = "2012-01-01", periods: int = 2400) -> pd
 def fetch_market_data(start: str = "2012-01-01") -> Tuple[pd.DataFrame, str]:
     symbols = list(TICKERS.values())
     try:
-        raw = yf.download(symbols, start=start, auto_adjust=False, progress=False)
+        raw = yf.download(symbols, start=start, progress=False)
         if raw.empty:
             raise RuntimeError("No market data returned from Yahoo Finance.")
 
@@ -173,9 +173,16 @@ def train_best_model(X: pd.DataFrame, y: pd.Series) -> ModelArtifacts:
 
 
 
+_MIN_TRAINING_ROWS = 100
+
+
 def train_pipeline(start: str = "2012-01-01") -> ModelArtifacts:
     close, source = fetch_market_data(start=start)
     X, y = build_feature_frame(close)
+    if len(X) < _MIN_TRAINING_ROWS:
+        close = generate_fallback_data(start=start)
+        X, y = build_feature_frame(close)
+        source = "synthetic_fallback"
     artifacts = train_best_model(X, y)
     artifacts.data_source = source
     return artifacts
