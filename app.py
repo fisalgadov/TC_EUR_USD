@@ -7,8 +7,9 @@ from eurusd_model import train_pipeline
 st.set_page_config(page_title="EUR/USD Monthly Prediction", layout="wide")
 
 
-@st.cache_resource
+@st.cache_resource(ttl=3600)  # Cache for 1 hour, then refresh
 def load_model():
+    """Load model with cache busting for new model version."""
     return train_pipeline(start="2006-01-01")
 
 
@@ -24,6 +25,15 @@ except Exception as e:
 if model_loaded:
     st.title("EUR/USD Monthly Log Return Prediction")
     
+    # Check if using old model structure
+    using_old_model = not hasattr(artifacts, 'data_info')
+    
+    if using_old_model:
+        st.warning("⚠️ Using cached model from previous version. Click button below to retrain with latest code.")
+        if st.button("🔄 Clear Cache & Retrain Model"):
+            st.cache_resource.clear()
+            st.rerun()
+    
     st.markdown("""
     ### Optimized Monthly Model
     This model predicts EUR/USD monthly log returns using:
@@ -36,16 +46,31 @@ if model_loaded:
     # Model performance metrics
     st.subheader("📊 Model Performance")
     
+    # Handle both old and new model structures
+    metrics = artifacts.metrics
+    
+    # Get metrics with fallbacks for old model structure
+    cv_r2 = metrics.get('cv_r2_mean', metrics.get('r2_mean', 0.0))
+    cv_dir = metrics.get('cv_dir_mean', 0.0)
+    test_dir = metrics.get('test_dir_acc', 0.0)
+    test_rmse = metrics.get('test_rmse', metrics.get('rmse_mean', 0.0))
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("CV R²", f"{artifacts.metrics['cv_r2_mean']:.4f}")
+        st.metric("CV R²", f"{cv_r2:.4f}")
     with col2:
-        st.metric("CV Direction Accuracy", f"{artifacts.metrics['cv_dir_mean']:.1%}")
+        if cv_dir > 0:
+            st.metric("CV Direction Accuracy", f"{cv_dir:.1%}")
+        else:
+            st.metric("CV R²", f"{metrics.get('r2_mean', 0.0):.4f}")
     with col3:
-        st.metric("Test Direction Accuracy", f"{artifacts.metrics['test_dir_acc']:.1%}")
+        if test_dir > 0:
+            st.metric("Test Direction Accuracy", f"{test_dir:.1%}")
+        else:
+            st.metric("CV RMSE", f"{metrics.get('rmse_mean', 0.0):.6f}")
     with col4:
-        st.metric("Test RMSE", f"{artifacts.metrics['test_rmse']:.6f}")
+        st.metric("Test RMSE", f"{test_rmse:.6f}")
     
     # Feature importance
     st.subheader("🎯 Selected Features")
@@ -60,15 +85,21 @@ if model_loaded:
     # Data info
     st.subheader("📅 Dataset Information")
     
-    info_col1, info_col2 = st.columns(2)
-    
-    with info_col1:
-        st.metric("Training Period", f"{artifacts.data_info['start_date'][:10]} to {artifacts.data_info['end_date'][:10]}")
-        st.metric("Total Observations", artifacts.data_info['n_observations'])
-    
-    with info_col2:
-        st.metric("Training Set Size", artifacts.data_info['n_train'])
-        st.metric("Test Set Size", artifacts.data_info['n_test'])
+    # Handle both old and new model structures
+    if hasattr(artifacts, 'data_info'):
+        info_col1, info_col2 = st.columns(2)
+        
+        with info_col1:
+            st.metric("Training Period", f"{artifacts.data_info['start_date'][:10]} to {artifacts.data_info['end_date'][:10]}")
+            st.metric("Total Observations", artifacts.data_info['n_observations'])
+        
+        with info_col2:
+            st.metric("Training Set Size", artifacts.data_info['n_train'])
+            st.metric("Test Set Size", artifacts.data_info['n_test'])
+    else:
+        # Fallback for old model structure
+        if hasattr(artifacts, 'X') and hasattr(artifacts, 'y'):
+            st.metric("Total Observations", len(artifacts.X))
     
     # Model interpretation
     st.subheader("💡 Model Interpretation")
@@ -111,7 +142,10 @@ if model_loaded:
         """)
     
     st.markdown("---")
-    st.caption(f"Model trained on {artifacts.data_info['n_observations']} monthly observations | Last updated: {artifacts.data_info['end_date'][:10]}")
+    if hasattr(artifacts, 'data_info'):
+        st.caption(f"Model trained on {artifacts.data_info['n_observations']} monthly observations | Last updated: {artifacts.data_info['end_date'][:10]}")
+    else:
+        st.caption("Model trained on historical EUR/USD data")
 
 else:
     st.title("EUR/USD Monthly Prediction")
