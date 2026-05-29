@@ -346,11 +346,16 @@ def train_model(X: pd.DataFrame, y: pd.Series, feature_cols: list) -> ModelArtif
     )
 
 
-def train_pipeline(start: str = START_DATE, fred_api_key: Optional[str] = None) -> ModelArtifacts:
+def train_pipeline(start: str = START_DATE, fred_api_key: Optional[str] = None, save_artifact: bool = False) -> ModelArtifacts:
     """
     Complete training pipeline.
     
     Downloads data, engineers features, trains optimized model.
+    
+    Args:
+        start: Training start date
+        fred_api_key: FRED API key (optional)
+        save_artifact: Whether to save model artifact for app deployment
     """
     # Set FRED API key if provided
     if fred_api_key:
@@ -383,6 +388,41 @@ def train_pipeline(start: str = START_DATE, fred_api_key: Optional[str] = None) 
     # Train model
     print("Training optimized model...")
     artifacts = train_model(X, y, feature_cols)
+    
+    # Save artifact if requested
+    if save_artifact:
+        import joblib
+        
+        # Get raw columns used (before feature engineering)
+        raw_cols = ['vix', 'us10y', 'us2y', 'us5y', 'gold', 'oil', 'spy', 'stoxx50', 
+                    'dax', 'de10y', 'de2y', 'us_cpi', 'eur_cpi', 'us_unemp', 'eur_unemp',
+                    'fed_rate', 'ecb_rate', 'us_gdp', 'eur_gdp']
+        
+        # Get last known raw values
+        last_raw = {}
+        for col in raw_cols:
+            if col in combined.columns:
+                last_raw[col] = float(combined[col].dropna().iloc[-1])
+        
+        # Get last known EUR/USD
+        last_eurusd = float(combined['eurusd'].dropna().iloc[-1])
+        last_date = combined['eurusd'].dropna().index[-1]
+        
+        artifact = {
+            'model': artifacts.model,
+            'selector': artifacts.selector,
+            'features': artifacts.features,
+            'metrics': artifacts.metrics,
+            'data_info': artifacts.data_info,
+            'raw_cols': raw_cols,
+            'last_raw': last_raw,
+            'last_eurusd': last_eurusd,
+            'last_date': str(last_date),
+            'hist_data': combined[raw_cols + ['eurusd']].copy(),
+        }
+        
+        joblib.dump(artifact, 'model_eurusd_monthly.pkl')
+        print("\n✅ Artifact saved to model_eurusd_monthly.pkl")
     
     print(f"\n✅ Model trained successfully!")
     print(f"   Features: {', '.join(artifacts.features)}")
@@ -418,10 +458,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Train EUR/USD monthly return model")
     parser.add_argument("--start", default=START_DATE, help="Training start date (YYYY-MM-DD)")
     parser.add_argument("--fred-key", help="FRED API key (or set FRED_API_KEY env var)")
+    parser.add_argument("--save-artifact", action="store_true", help="Save model artifact for app deployment")
     args = parser.parse_args()
     
     # Train model
-    artifacts = train_pipeline(start=args.start, fred_api_key=args.fred_key)
+    artifacts = train_pipeline(start=args.start, fred_api_key=args.fred_key, save_artifact=args.save_artifact)
     
     # Summary
     print("\n" + "="*80)
